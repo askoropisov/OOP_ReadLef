@@ -10,6 +10,12 @@ enum class SiteClass {
     pad,
 };
 
+enum class MacroClass {
+    undefined = 0,
+    core,
+    pad,
+};
+
 enum class PinDirection {
     undefined = 0,
     input,
@@ -60,11 +66,15 @@ public:
     std::vector<Polygon*>    polygons;
 public:
     Pin(std::string name);
+public:
+    bool ReadPolygon(std::ifstream& lefFile, std::string& name);
 };
 
 Pin::Pin(std::string name) : name(name), direction(PinDirection::undefined) {}
 
-
+class OBS {
+public: 
+};
 
 class Layer {
 public:
@@ -76,12 +86,17 @@ public:
     Layer(std::string name) : name(name), type(LayerType::undefined), width(0.0f), spacing(0.0f), pitch(0.0f), direction(LayerDirection::undefined) {}
 };
 
-//Layer::Layer(std::string name) : name(name) {}
 
 class Macro {
 public:
     std::string         name;
-    std::vector<Pin*>  pins;
+    std::vector<Pin*>   pins;
+    std::vector<OBS*>   obss;
+    SiteClass           site_class;
+    float size_x, size_y;
+    bool        symmetryX,
+        symmetryY;
+    MacroClass           macro_class;
 public:
     Macro(std::string name);
     ~Macro();
@@ -114,6 +129,7 @@ public:
 private:
     bool ReadUnits(std::ifstream& lefFile);
     bool ReadSite(std::ifstream& lefFile, std::string& name);
+    bool ReadMacro(std::ifstream& lefFile, std::string& name);
 };
 
 LEFFile::LEFFile() {}
@@ -183,7 +199,12 @@ bool LEFFile::Read(std::string filename) {
             continue;
         }
         if (token == "MACRO") {
-           
+            iss >> token;
+            if (!ReadMacro(lefFile, token)) {
+                lefFile.close();
+                return false;
+            }
+            continue;
         }
     }
 
@@ -290,6 +311,140 @@ bool LEFFile::ReadSite(std::ifstream& lefFile, std::string& name) {
     }
     return true;
 }
+
+bool Macro::ReadPin(std::ifstream& lefFile, std::string& name) {
+    Pin* p_pin = new Pin(name);
+    pins.push_back(p_pin);
+
+    std::string line,
+        token;
+    while (std::getline(lefFile, line)) {
+        trim_left(line);
+        if (line.empty())
+            continue;
+        if (line[0] == '#')
+            continue;
+
+        std::istringstream iss(line);
+        iss >> token;
+
+        if (token == "END") {
+            iss >> token;
+            if (token == name)
+                return true;
+            std::cerr << "_err_ : [Reading PIN] 'END' statement met with name different from '" << name << "' (which was used to define site). UNITS read failed." << std::endl;
+            return false;
+        }
+
+        if(token =="DIRECTION") {
+            iss >> token;
+            if (token == "INPUT") {
+                PinDirection::input;
+                continue;
+            }
+            if (token == "OUTPUT") {
+                PinDirection::output;
+                continue;
+            }
+            if (token == "INOUT") {
+                PinDirection::inout;
+                continue;
+            }
+            if (token == "FEEDTHRU") {
+                PinDirection::feedthru;
+                continue;
+            }
+            if (token == "TRISTATE") {
+                PinDirection::tristate;
+                continue;
+            }
+            std::cerr << "_wrn_ : [Reading PIN] Unsupported DIRECTION'" << token << "'. Line ignored." << std::endl;
+            continue;
+        }
+        if (token == "RECT" || token == "POLYGON") {
+            iss >> token;
+            if (!p_pin->ReadPolygon(lefFile, token)) {
+                lefFile.close();
+                return false;
+            }
+            continue;
+        }
+    }
+    return true;
+}
+
+bool LEFFile::ReadMacro(std::ifstream& lefFile, std::string& name) {
+    Macro* p_mac = new Macro(name);
+    macroes.push_back(p_mac);
+
+    std::string line,
+        token;
+
+    while (std::getline(lefFile, line)) {
+        trim_left(line);
+        if (line.empty())
+            continue;
+        if (line[0] == '#')
+            continue;
+
+        std::istringstream iss(line);
+        iss >> token;
+
+        if (token == "END") {
+            iss >> token;
+            if (token == name)
+                return true;
+            std::cerr << "_err_ : [Reading MACRO] 'END' statement met with name different from '" << name << "' (which was used to define site). UNITS read failed." << std::endl;
+            return false;
+        }
+        
+        if (token == "CLASS") {
+            iss >> token;
+            if (token == "CORE") {
+                p_mac->macro_class = MacroClass::core;
+                continue;
+            }
+            if (token == "PAD") {
+                p_mac->macro_class = MacroClass::pad;
+                continue;
+            }
+            std::cerr << "_wrn_ : [Reading MACRO] Unsupported SITE CLASS type '" << token << "'. Line ignored." << std::endl;
+            continue;
+        }
+
+        if (token == "SYMMETRY") {
+            iss >> token;
+            if (token == "Y")
+                p_mac->symmetryY = true;
+            if (token == "X") {
+                p_mac->symmetryX = true;
+                iss >> token;
+                if (token == "Y")
+                    p_mac->symmetryY = true;
+            }
+            continue;
+        }
+
+        if (token == "SIZE") {
+            iss >> p_mac->size_x >> token >> p_mac->size_y;
+            continue;
+        }
+
+        if (token == "PIN") {
+            iss >> token;
+            if (!p_mac->ReadPin(lefFile, token)) {
+                lefFile.close();
+                return false;
+            }
+            continue;
+        }
+
+        std::cerr << "_wrn_ : [Reading MACRO] Unsupported token '" << token << "'. Line ignored." << std::endl;
+        continue;
+    }
+    return true;
+}
+
 
 
 int main() {
