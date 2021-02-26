@@ -56,8 +56,11 @@ public:
 
 class Polygon {
 public:
+    std::string name;
     std::vector<double>     position;
 };
+
+
 
 class Pin {
 public: 
@@ -312,6 +315,31 @@ bool LEFFile::ReadSite(std::ifstream& lefFile, std::string& name) {
     return true;
 }
 
+bool Pin::ReadPolygon(std::ifstream& lefFile, std::string& name) {
+    Polygon* polygon;
+    float k = 0;
+    polygons.push_back(polygon);
+    std::string line,
+        token;
+    while (std::getline(lefFile, line)) {
+        trim_left(line);
+        if (line.empty())
+            continue;
+        if (line[0] == '#')
+            continue;
+
+        std::istringstream iss(line);
+        iss >> token;
+        while (token != ";")
+        {
+            iss >> k;
+            
+        }
+        
+    }
+    return true;
+}
+
 bool Macro::ReadPin(std::ifstream& lefFile, std::string& name) {
     Pin* p_pin = new Pin(name);
     pins.push_back(p_pin);
@@ -361,8 +389,7 @@ bool Macro::ReadPin(std::ifstream& lefFile, std::string& name) {
             std::cerr << "_wrn_ : [Reading PIN] Unsupported DIRECTION'" << token << "'. Line ignored." << std::endl;
             continue;
         }
-        if (token == "RECT" || token == "POLYGON") {
-            iss >> token;
+        if ((token == "RECT") || (token == "POLYGON")) {
             if (!p_pin->ReadPolygon(lefFile, token)) {
                 lefFile.close();
                 return false;
