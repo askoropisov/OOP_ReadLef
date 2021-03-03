@@ -56,39 +56,72 @@ public:
 
 class Polygon {
 public:
-    std::string name;
-    std::vector<double>     position;
+    std::vector<double>  position;
+//public:
+//    bool ReadPosition(std::ifstream& lefFile, std::string& name);
 };
 
+//class Position {
+//public:
+//    float poss;
+//};
 
 
-class Pin {
-public: 
-    std::string             name;
-    PinDirection            direction;
-    std::vector<Polygon*>    polygons;
-public:
-    Pin(std::string name);
-public:
-    bool ReadPolygon(std::ifstream& lefFile, std::string& name);
-};
 
-Pin::Pin(std::string name) : name(name), direction(PinDirection::undefined) {}
 
-class OBS {
-public: 
-};
 
 class Layer {
 public:
-    std::string         name;
-    LayerType           type;
-    float    width, spacing, pitch;
-    LayerDirection      direction;
+    std::string             name;
+    std::vector<Polygon*>   polygons;
 public: 
-    Layer(std::string name) : name(name), type(LayerType::undefined), width(0.0f), spacing(0.0f), pitch(0.0f), direction(LayerDirection::undefined) {}
+    Layer(std::string name);
+    ~Layer();
+public: 
+    bool ReadPolygon(std::ifstream& lefFile, std::string& name);
 };
 
+Layer::Layer(std::string name) : name(name) {}
+Layer::~Layer() {
+    for (size_t i = 0; i < polygons.size(); ++i)
+        delete polygons[i];
+    polygons.clear();
+}
+
+
+class Pin {
+public:
+    std::string             name;
+    PinDirection            direction;
+    std::vector<Layer*>     layers;
+public:
+    Pin(std::string name);
+    ~Pin();
+public:
+    bool ReadLayer(std::ifstream& lefFile, std::string& name);    
+};
+
+Pin::Pin(std::string name) : name(name), direction(PinDirection::undefined) {}
+Pin::~Pin() {
+    for (size_t i = 0; i < layers.size(); ++i)
+        delete layers[i];
+    layers.clear();
+}
+
+class OBS {
+public:
+    std::vector<Layer*>     layers;
+public:
+    ~OBS();
+public:
+    bool ReadLayer(std::ifstream& lefFile, std::string& name);
+};
+
+OBS::~OBS() {
+    for (size_t i = 0; i < layers.size(); ++i)
+        delete layers[i];
+    layers.clear();
+}
 
 class Macro {
 public:
@@ -315,10 +348,11 @@ bool LEFFile::ReadSite(std::ifstream& lefFile, std::string& name) {
     return true;
 }
 
-bool Pin::ReadPolygon(std::ifstream& lefFile, std::string& name) {
-    Polygon* polygon;
-    float k = 0;
-    polygons.push_back(polygon);
+
+bool Layer::ReadPolygon(std::ifstream& lefFile, std::string& name) {
+    Polygon* p_pol = new Polygon;
+    polygons.push_back(p_pol);
+
     std::string line,
         token;
     while (std::getline(lefFile, line)) {
@@ -330,12 +364,52 @@ bool Pin::ReadPolygon(std::ifstream& lefFile, std::string& name) {
 
         std::istringstream iss(line);
         iss >> token;
-        while (token != ";")
-        {
-            iss >> k;
-            
+
+        if (token == ";") {
+            return true;
+            std::cerr << "_wrn_ : [Reading POLYGON] Unsupported symbol" << token << "'. Line ignored." << std::endl;
+            return false;
         }
-        
+    }
+    return true;
+}
+
+bool Pin::ReadLayer(std::ifstream& lefFile, std::string& name) {
+    Layer* p_lay = new Layer(name);
+    layers.push_back(p_lay);
+
+    std::string line,
+        token;
+    while (std::getline(lefFile, line)) {
+        trim_left(line);
+        if (line.empty())
+            continue;
+        if (line[0] == '#')
+            continue;
+
+        std::istringstream iss(line);
+        iss >> token;
+
+        if (token == "END") {
+            return true;
+            std::cerr << "_wrn_ : [Reading LAYER] Unsupported symbol" << token << "'. Line ignored." << std::endl;
+            return false;
+        }
+      
+        if (token == "POLYGON") {
+            if (!p_lay->ReadPolygon(lefFile, token)) {
+                lefFile.close();
+                return false;
+            }
+            continue;
+        }
+        if (token == "RECT") {
+            if (!p_lay->ReadPolygon(lefFile, token)) {
+                lefFile.close();
+                return false;
+            }
+            continue;
+        }
     }
     return true;
 }
@@ -367,30 +441,31 @@ bool Macro::ReadPin(std::ifstream& lefFile, std::string& name) {
         if(token =="DIRECTION") {
             iss >> token;
             if (token == "INPUT") {
-                PinDirection::input;
+                p_pin->direction = PinDirection::input;
                 continue;
             }
             if (token == "OUTPUT") {
-                PinDirection::output;
+                p_pin->direction = PinDirection::output;
                 continue;
             }
             if (token == "INOUT") {
-                PinDirection::inout;
+                p_pin->direction = PinDirection::inout;
                 continue;
             }
             if (token == "FEEDTHRU") {
-                PinDirection::feedthru;
+                p_pin->direction = PinDirection::feedthru;
                 continue;
             }
             if (token == "TRISTATE") {
-                PinDirection::tristate;
+                p_pin->direction = PinDirection::tristate;
                 continue;
             }
             std::cerr << "_wrn_ : [Reading PIN] Unsupported DIRECTION'" << token << "'. Line ignored." << std::endl;
             continue;
         }
-        if ((token == "RECT") || (token == "POLYGON")) {
-            if (!p_pin->ReadPolygon(lefFile, token)) {
+        if (token == "LAYER") {
+            iss >> token;
+            if (!p_pin->ReadLayer(lefFile, token)) {
                 lefFile.close();
                 return false;
             }
@@ -399,6 +474,80 @@ bool Macro::ReadPin(std::ifstream& lefFile, std::string& name) {
     }
     return true;
 }
+
+bool Macro::ReadObs(std::ifstream& lefFile, std::string& name) {
+    OBS* p_obs = new OBS;
+    obss.push_back(p_obs);
+    std::string line,
+        token;
+    while (std::getline(lefFile, line)) {
+        trim_left(line);
+        if (line.empty())
+            continue;
+        if (line[0] == '#')
+            continue;
+
+        std::istringstream iss(line);
+        iss >> token;
+        if (token == "END") {
+            return true;
+            std::cerr << "_wrn_ : [Reading LAYER] Unsupported" << token << "'. Line ignored." << std::endl;
+            return false;
+        }
+        if (token == "LAYER") {
+            iss >> token;
+            if (!p_obs->ReadLayer(lefFile, token)) {
+                lefFile.close();
+                return false;
+            }
+            continue;
+        }
+    }
+    return true;
+}
+
+bool OBS::ReadLayer(std::ifstream& lefFile, std::string& name) {
+    Layer* p_lay = new Layer(name);
+    layers.push_back(p_lay);
+
+    std::string line,
+        token;
+    while (std::getline(lefFile, line)) {
+        trim_left(line);
+        if (line.empty())
+            continue;
+        if (line[0] == '#')
+            continue;
+
+        std::istringstream iss(line);
+        iss >> token;
+
+        if (token == ";") {
+            iss >> token;
+            if (token == "END")
+                return true;
+            std::cerr << "_wrn_ : [Reading LAYER] Unsupported" << token << "'. Line ignored." << std::endl;
+            return false;
+        }
+        if (token == "POLYGON") {
+            if (!p_lay->ReadPolygon(lefFile, token)) {
+                lefFile.close();
+                return false;
+            }
+            continue;
+        }
+        if (token == "RECT") {
+            if (!p_lay->ReadPolygon(lefFile, token)) {
+                lefFile.close();
+                return false;
+            }
+            continue;
+        }
+
+    }
+    return true;
+}
+
 
 bool LEFFile::ReadMacro(std::ifstream& lefFile, std::string& name) {
     Macro* p_mac = new Macro(name);
@@ -465,6 +614,14 @@ bool LEFFile::ReadMacro(std::ifstream& lefFile, std::string& name) {
             }
             continue;
         }
+        if (token == "OBS") {
+            iss >> token;
+            if (!p_mac->ReadObs(lefFile, token)) {
+                lefFile.close();
+                return false;
+            }
+            continue;
+        }
 
         std::cerr << "_wrn_ : [Reading MACRO] Unsupported token '" << token << "'. Line ignored." << std::endl;
         continue;
@@ -485,3 +642,6 @@ int main() {
     return EXIT_SUCCESS;
 }
 
+
+//переход из LAYER в POLYGON
+//как считать коор-ты
